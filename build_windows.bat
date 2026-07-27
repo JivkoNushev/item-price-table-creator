@@ -122,7 +122,7 @@ echo.
 echo [3/5] Installing build dependencies...
 echo    (pyinstaller + openpyxl)
 
-%VENV_PIP% install --quiet --upgrade pip
+%VENV_PY% -m pip install --quiet --upgrade pip
 %VENV_PIP% install --quiet pyinstaller openpyxl
 if %errorlevel% neq 0 (
     echo    ERROR: Failed to install dependencies.
