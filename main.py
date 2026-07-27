@@ -351,7 +351,7 @@ class ColumnBar(tk.Frame):
                   command=self._add_column).pack(side=tk.LEFT, padx=5, pady=2)
 
     def _add_column(self):
-        dialog = ColumnDialog(self)
+        dialog = ColumnDialog(self.winfo_toplevel())
         self.wait_window(dialog)
         if dialog.result:
             name, optional = dialog.result
@@ -379,7 +379,7 @@ class ColumnBar(tk.Frame):
 
     def _edit_column(self, index):
         col = self.columns[index]
-        dialog = ColumnDialog(self, name=col["name"], optional=col["optional"],
+        dialog = ColumnDialog(self.winfo_toplevel(), name=col["name"], optional=col["optional"],
                               title="Edit Column")
         self.wait_window(dialog)
         if dialog.result:
