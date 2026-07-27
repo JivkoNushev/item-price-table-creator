@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import ttk
 import os
+import sys
 
 try:
     from openpyxl import Workbook, load_workbook
@@ -10,7 +11,12 @@ except ImportError:
     print("openpyxl is not installed. Run: pip install openpyxl")
     exit(1)
 
-XLSX_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "entries.xlsx")
+if getattr(sys, 'frozen', False):
+    APP_DIR = os.path.dirname(sys.executable)
+else:
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+XLSX_FILE = os.path.join(APP_DIR, "entries.xlsx")
 
 
 class MsgBox(tk.Toplevel):
