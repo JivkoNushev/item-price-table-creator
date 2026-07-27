@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 import os
 
 try:
@@ -11,6 +11,50 @@ except ImportError:
     exit(1)
 
 XLSX_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "entries.xlsx")
+
+
+class MsgBox(tk.Toplevel):
+    def __init__(self, parent, title, message, msg_type="info"):
+        super().__init__(parent)
+        self.title(title)
+        self.resizable(False, False)
+        self.grab_set()
+
+        colors = {"info": "#1565C0", "warning": "#e65100", "error": "#c62828"}
+        border_color = colors.get(msg_type, "#1565C0")
+
+        outer = tk.Frame(self, bg=border_color, padx=2, pady=2)
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        inner = tk.Frame(outer, bg="white", padx=20, pady=15)
+        inner.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(inner, text=message, bg="white", font=("Segoe UI", 10),
+                 wraplength=350, justify="left", anchor="w").pack(fill=tk.X, pady=(0, 12))
+
+        ok_btn = tk.Button(inner, text="OK", font=("Segoe UI", 10, "bold"),
+                           width=10, command=self._close, bg=border_color, fg="white")
+        ok_btn.pack()
+        ok_btn.focus_set()
+        self.bind("<Return>", lambda e: self._close())
+        self.bind("<Escape>", lambda e: self._close())
+
+        self.update_idletasks()
+        pw = parent.winfo_width()
+        ph = parent.winfo_height()
+        px = parent.winfo_x()
+        py = parent.winfo_y()
+        w = self.winfo_width()
+        h = self.winfo_height()
+        self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+
+    def _close(self):
+        self.grab_release()
+        self.destroy()
+
+
+def show_msg(parent, title, message, msg_type="info"):
+    MsgBox(parent, title, message, msg_type)
 
 
 class AutocompleteEntry(tk.Frame):
@@ -215,21 +259,21 @@ class EntryRow(tk.Frame):
         new_price_sample = self.ent_price_sample.get().strip()
 
         if not new_sku:
-            messagebox.showwarning("Warning", "Модел SKU cannot be empty.")
+            show_msg(self.winfo_toplevel(), "Warning", "Модел SKU cannot be empty.", "warning")
             return
 
         if not is_valid_price(new_price):
-            messagebox.showwarning("Warning", "Цена must be a valid positive number.")
+            show_msg(self.winfo_toplevel(), "Warning", "Цена must be a valid positive number.", "warning")
             return
 
         if new_price_sample and not is_valid_price(new_price_sample):
-            messagebox.showwarning("Warning", "Цена на мостра must be a valid positive number if provided.")
+            show_msg(self.winfo_toplevel(), "Warning", "Цена на мостра must be a valid positive number if provided.", "warning")
             return
 
         new_entry = (new_sku, format_price(new_price), format_price(new_price_sample) if new_price_sample else "")
         for i, e in enumerate(self.entries_ref):
             if i != self.original_index and e == new_entry:
-                messagebox.showwarning("Duplicate", "This entry already exists.")
+                show_msg(self.winfo_toplevel(), "Duplicate", "This entry already exists.", "warning")
                 return
 
         old_entry = (self.model_sku, self.price, self.price_sample)
@@ -275,7 +319,7 @@ def format_price(value):
         return value
 
 
-def load_entries_from_xlsx():
+def load_entries_from_xlsx(parent=None):
     entries = []
     if not os.path.exists(XLSX_FILE):
         return entries
@@ -298,11 +342,12 @@ def load_entries_from_xlsx():
                 entries.append((sku, price, price_sample))
         wb.close()
     except Exception as e:
-        messagebox.showerror("Error", f"Failed to load entries:\n{e}")
+        if parent:
+            show_msg(parent, "Error", f"Failed to load entries:\n{e}", "error")
     return entries
 
 
-def save_entries_to_xlsx(entries):
+def save_entries_to_xlsx(entries, parent=None):
     try:
         wb = Workbook()
         ws = wb.active
@@ -341,7 +386,8 @@ def save_entries_to_xlsx(entries):
         wb.close()
         return True
     except Exception as e:
-        messagebox.showerror("Error", f"Failed to save entries:\n{e}")
+        if parent:
+            show_msg(parent, "Error", f"Failed to save entries:\n{e}", "error")
         return False
 
 
@@ -353,7 +399,7 @@ class App(tk.Tk):
         self.minsize(650, 450)
         self.configure(bg="#f0f0f0")
 
-        self.entries = load_entries_from_xlsx()
+        self.entries = load_entries_from_xlsx(self)
         self._build_ui()
         self._refresh_suggestions()
 
@@ -461,15 +507,15 @@ class App(tk.Tk):
         price_sample_raw = self.ent_price_sample.get().strip()
 
         if not sku:
-            messagebox.showwarning("Warning", "Please enter a Модел SKU.")
+            show_msg(self, "Warning", "Please enter a Модел SKU.", "warning")
             return
 
         if not is_valid_price(price_raw):
-            messagebox.showwarning("Warning", "Цена must be a valid positive number.")
+            show_msg(self, "Warning", "Цена must be a valid positive number.", "warning")
             return
 
         if price_sample_raw and not is_valid_price(price_sample_raw):
-            messagebox.showwarning("Warning", "Цена на мостра must be a valid positive number if provided.")
+            show_msg(self, "Warning", "Цена на мостра must be a valid positive number if provided.", "warning")
             return
 
         price = format_price(price_raw)
@@ -477,7 +523,7 @@ class App(tk.Tk):
 
         new_entry = (sku, price, price_sample)
         if new_entry in self.entries:
-            messagebox.showwarning("Duplicate", "This entry already exists.")
+            show_msg(self, "Duplicate", "This entry already exists.", "warning")
             return
 
         self.entries.append(new_entry)
@@ -489,18 +535,18 @@ class App(tk.Tk):
 
         self._refresh_suggestions()
         self._render_entries()
-        save_entries_to_xlsx(self.entries)
+        save_entries_to_xlsx(self.entries, self)
 
     def _finish(self):
         if not self.entries:
-            messagebox.showwarning("Warning", "No entries to save.")
+            show_msg(self, "Warning", "No entries to save.", "warning")
             return
-        if save_entries_to_xlsx(self.entries):
-            messagebox.showinfo("Success", f"Saved {len(self.entries)} entries to:\n{XLSX_FILE}")
+        if save_entries_to_xlsx(self.entries, self):
+            show_msg(self, "Success", f"Saved {len(self.entries)} entries to:\n{XLSX_FILE}", "info")
             self.destroy()
 
     def _auto_save(self):
-        save_entries_to_xlsx(self.entries)
+        save_entries_to_xlsx(self.entries, self)
 
     def _render_entries(self):
         for widget in self.scrollable_frame.winfo_children():
@@ -523,7 +569,7 @@ class App(tk.Tk):
         self.entries = [e for e in self.entries if not (e[0] == data[0] and e[1] == data[1] and e[2] == data[2])]
         self._refresh_suggestions()
         self._render_entries()
-        save_entries_to_xlsx(self.entries)
+        save_entries_to_xlsx(self.entries, self)
 
 
 def main():
