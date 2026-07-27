@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog
 import os
 import sys
 
@@ -16,15 +16,12 @@ if getattr(sys, 'frozen', False):
 else:
     APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
-XLSX_FILE = os.path.join(APP_DIR, "entries.xlsx")
-
-
 class MsgBox(tk.Toplevel):
     def __init__(self, parent, title, message, msg_type="info"):
         super().__init__(parent)
         self.title(title)
         self.resizable(False, False)
-        self.grab_set()
+        self.after_idle(self.grab_set)
 
         colors = {"info": "#1565C0", "warning": "#e65100", "error": "#c62828"}
         border_color = colors.get(msg_type, "#1565C0")
@@ -45,11 +42,13 @@ class MsgBox(tk.Toplevel):
         self.bind("<Return>", lambda e: self._close())
         self.bind("<Escape>", lambda e: self._close())
 
-        self.update_idletasks()
-        pw = parent.winfo_width()
-        ph = parent.winfo_height()
-        px = parent.winfo_x()
-        py = parent.winfo_y()
+        self.after(10, self._center_on_parent)
+
+    def _center_on_parent(self):
+        pw = self.master.winfo_width()
+        ph = self.master.winfo_height()
+        px = self.master.winfo_x()
+        py = self.master.winfo_y()
         w = self.winfo_width()
         h = self.winfo_height()
         self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
@@ -61,6 +60,71 @@ class MsgBox(tk.Toplevel):
 
 def show_msg(parent, title, message, msg_type="info"):
     MsgBox(parent, title, message, msg_type)
+
+
+class StartupDialog(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Table Generator")
+        self.resizable(False, False)
+        self.result = None
+        self.after_idle(self.grab_set)
+
+        border_color = "#1565C0"
+        outer = tk.Frame(self, bg=border_color, padx=2, pady=2)
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        inner = tk.Frame(outer, bg="white", padx=24, pady=20)
+        inner.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(inner, text="Welcome to Table Generator",
+                 bg="white", font=("Segoe UI", 12, "bold")).pack(pady=(0, 5))
+        tk.Label(inner, text="Choose how to start:",
+                 bg="white", font=("Segoe UI", 10)).pack(pady=(0, 15))
+
+        btn_frame = tk.Frame(inner, bg="white")
+        btn_frame.pack()
+
+        self.btn_open = tk.Button(btn_frame, text="Open File", font=("Segoe UI", 10, "bold"),
+                                  width=14, bg="#1565C0", fg="white",
+                                  command=self._open_file)
+        self.btn_open.pack(side=tk.LEFT, padx=(0, 10))
+
+        self.btn_new = tk.Button(btn_frame, text="Start New", font=("Segoe UI", 10, "bold"),
+                                 width=14, bg="#4CAF50", fg="white",
+                                 command=self._start_new)
+        self.btn_new.pack(side=tk.LEFT)
+
+        self.protocol("WM_DELETE_WINDOW", self._start_new)
+
+        self.after(10, self._center_on_parent)
+
+    def _center_on_parent(self):
+        pw = self.master.winfo_width()
+        ph = self.master.winfo_height()
+        px = self.master.winfo_x()
+        py = self.master.winfo_y()
+        w = self.winfo_width()
+        h = self.winfo_height()
+        self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+
+    def _open_file(self):
+        path = filedialog.askopenfilename(
+            parent=self,
+            title="Open Entries File",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if path:
+            self.result = path
+            self.grab_release()
+            self.destroy()
+        else:
+            self.btn_open.focus_set()
+
+    def _start_new(self):
+        self.result = ""
+        self.grab_release()
+        self.destroy()
 
 
 class AutocompleteEntry(tk.Frame):
@@ -325,12 +389,12 @@ def format_price(value):
         return value
 
 
-def load_entries_from_xlsx(parent=None):
+def load_entries_from_xlsx(file_path, parent=None):
     entries = []
-    if not os.path.exists(XLSX_FILE):
+    if not os.path.exists(file_path):
         return entries
     try:
-        wb = load_workbook(XLSX_FILE)
+        wb = load_workbook(file_path)
         ws = wb.active
         for row in ws.iter_rows(min_row=2, values_only=True):
             if row[0] is None:
@@ -353,7 +417,7 @@ def load_entries_from_xlsx(parent=None):
     return entries
 
 
-def save_entries_to_xlsx(entries, parent=None):
+def save_entries_to_xlsx(entries, file_path, parent=None):
     try:
         wb = Workbook()
         ws = wb.active
@@ -388,7 +452,7 @@ def save_entries_to_xlsx(entries, parent=None):
         ws.column_dimensions["B"].width = 15
         ws.column_dimensions["C"].width = 20
 
-        wb.save(XLSX_FILE)
+        wb.save(file_path)
         wb.close()
         return True
     except Exception as e:
@@ -404,10 +468,13 @@ class App(tk.Tk):
         self.geometry("750x550")
         self.minsize(650, 450)
         self.configure(bg="#f0f0f0")
+        self.current_file = None
+        self.entries = []
 
-        self.entries = load_entries_from_xlsx(self)
+        self._update_title()
         self._build_ui()
         self._refresh_suggestions()
+        self.after(100, self._show_startup)
 
     def _build_ui(self):
         style = ttk.Style()
@@ -479,6 +546,14 @@ class App(tk.Tk):
         bottom_frame = tk.Frame(self, bg="#f0f0f0", pady=8, padx=10)
         bottom_frame.pack(fill=tk.X)
 
+        self.btn_open = tk.Button(bottom_frame, text="Open", font=("Segoe UI", 10, "bold"),
+                                  padx=12, pady=2, command=self._open_file)
+        self.btn_open.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.btn_save_as = tk.Button(bottom_frame, text="Save As", font=("Segoe UI", 10, "bold"),
+                                     padx=12, pady=2, command=self._save_as_file)
+        self.btn_save_as.pack(side=tk.LEFT, padx=(0, 5))
+
         self.btn_finish = tk.Button(bottom_frame, text="Finish", font=("Segoe UI", 10, "bold"),
                                      bg="#1565C0", fg="white", padx=16, pady=2, command=self._finish)
         self.btn_finish.pack(side=tk.RIGHT)
@@ -506,6 +581,24 @@ class App(tk.Tk):
         names = list({e[0] for e in self.entries})
         names.sort()
         self.autocomplete.set_suggestions(names)
+
+    def _show_startup(self):
+        startup = StartupDialog(self)
+        self.wait_window(startup)
+
+        if startup.result is None:
+            self.destroy()
+            return
+
+        if startup.result:
+            self.current_file = startup.result
+            self.entries = load_entries_from_xlsx(self.current_file, self)
+        else:
+            self.entries = []
+
+        self._update_title()
+        self._refresh_suggestions()
+        self._render_entries()
 
     def _add_entry(self):
         sku = self.autocomplete.get().strip()
@@ -541,18 +634,29 @@ class App(tk.Tk):
 
         self._refresh_suggestions()
         self._render_entries()
-        save_entries_to_xlsx(self.entries, self)
+        if self.current_file:
+            save_entries_to_xlsx(self.entries, self.current_file, self)
 
     def _finish(self):
         if not self.entries:
             show_msg(self, "Warning", "No entries to save.", "warning")
             return
-        if save_entries_to_xlsx(self.entries, self):
-            show_msg(self, "Success", f"Saved {len(self.entries)} entries to:\n{XLSX_FILE}", "info")
+        if not self.current_file:
+            path = filedialog.asksaveasfilename(
+                title="Save Entries File",
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+            )
+            if not path:
+                return
+            self.current_file = path
+            self._update_title()
+        if save_entries_to_xlsx(self.entries, self.current_file, self):
             self.destroy()
 
     def _auto_save(self):
-        save_entries_to_xlsx(self.entries, self)
+        if self.current_file:
+            save_entries_to_xlsx(self.entries, self.current_file, self)
 
     def _render_entries(self):
         for widget in self.scrollable_frame.winfo_children():
@@ -575,7 +679,39 @@ class App(tk.Tk):
         self.entries = [e for e in self.entries if not (e[0] == data[0] and e[1] == data[1] and e[2] == data[2])]
         self._refresh_suggestions()
         self._render_entries()
-        save_entries_to_xlsx(self.entries, self)
+        if self.current_file:
+            save_entries_to_xlsx(self.entries, self.current_file, self)
+
+    def _update_title(self):
+        if self.current_file:
+            self.title(f"Table Generator \u2014 {os.path.basename(self.current_file)}")
+        else:
+            self.title("Table Generator \u2014 New")
+
+    def _open_file(self):
+        path = filedialog.askopenfilename(
+            title="Open Entries File",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+        self.current_file = path
+        self.entries = load_entries_from_xlsx(self.current_file, self)
+        self._update_title()
+        self._refresh_suggestions()
+        self._render_entries()
+
+    def _save_as_file(self):
+        path = filedialog.asksaveasfilename(
+            title="Save Entries File",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+        self.current_file = path
+        self._update_title()
+        save_entries_to_xlsx(self.entries, self.current_file, self)
 
 
 def main():
