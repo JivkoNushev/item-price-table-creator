@@ -527,7 +527,7 @@ class App(tk.Tk):
         canvas_frame.pack(fill=tk.BOTH, expand=True)
 
         self.canvas = tk.Canvas(canvas_frame, bg="white", highlightthickness=0)
-        self.scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=self.canvas.yview)
+        self.scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=self._clamped_yview)
         self.scrollable_frame = tk.Frame(self.canvas, bg="white")
 
         self.scrollable_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
@@ -562,14 +562,45 @@ class App(tk.Tk):
 
     def _on_canvas_configure(self, event):
         self.canvas.itemconfig(self.canvas_window, width=event.width)
+        self.after(10, self._clamp_scroll)
 
     def _on_mousewheel(self, event):
+        x, y = self.winfo_pointerxy()
+        widget = self.winfo_containing(x, y)
+        if not widget or not self._is_descendant(widget, self.canvas):
+            return
         if event.num == 4:
             self.canvas.yview_scroll(-1, "units")
         elif event.num == 5:
             self.canvas.yview_scroll(1, "units")
         else:
             self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        self._clamp_scroll()
+
+    def _clamped_yview(self, *args):
+        self.canvas.yview(*args)
+        self._clamp_scroll()
+
+    def _clamp_scroll(self):
+        content_height = self.scrollable_frame.winfo_reqheight()
+        canvas_height = self.canvas.winfo_height()
+        if content_height <= canvas_height:
+            self.canvas.yview_moveto(0)
+        else:
+            first, last = self.canvas.yview()
+            if first < 0:
+                self.canvas.yview_moveto(0)
+            elif last > 1:
+                self.canvas.yview_moveto(max(0, 1 - (last - first)))
+
+    @staticmethod
+    def _is_descendant(widget, ancestor):
+        w = widget
+        while w:
+            if w == ancestor:
+                return True
+            w = w.master
+        return False
 
     def _focus_price(self):
         self.ent_price.focus_set()
@@ -665,6 +696,7 @@ class App(tk.Tk):
         if not self.entries:
             tk.Label(self.scrollable_frame, text="No entries yet.", bg="white",
                       font=("Segoe UI", 10, "italic"), fg="gray", pady=20).pack()
+            self.after(10, self._clamp_scroll)
             return
 
         for i, (sku, price, price_sample) in enumerate(self.entries):
@@ -673,6 +705,7 @@ class App(tk.Tk):
                            entries_ref=self.entries, original_index=i,
                            bg="white" if i % 2 == 0 else "#f9f9f9")
             row.pack(fill=tk.X)
+        self.after(10, self._clamp_scroll)
 
     def _delete_entry(self, row_widget):
         data = row_widget.get_data()
