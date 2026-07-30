@@ -31,6 +31,19 @@ REPO_NAME = "item-price-table-creator"
 GITHUB_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
 RELEASES_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/latest"
 
+FLOWER_ICON = (
+    "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB5UlEQVR4nO2Vz0pCURDG/Yf/xUQD"
+    "pU2YoZBP0DYIwmdwFS6McN0DCG2qreADhItWQUSi0MKiNxCyXZDtctNGCPs++YKLVGb3agR34AfH"
+    "OXNm5s6ZMzocttjyn+Vpu7JD/ip4BpyIzEKD3z0MnAhaAreiRN0iAruAFwQQtA5eRJ067bnmFdyj"
+    "IBGwhKAdMBId6rRHG888ggdBFCQQMA8eDQlwneeebIKWJAGnLLVPX0XHy2AFun0wxHqdcE0d92QT"
+    "1TX56OM3gXNgD9TAOWiDK9DQ3Tf55aOuY4yq0NReQ7Ztna3JV26WBFLgALTAs6HUI2PgSSbtdLYl"
+    "X6lZq5AGx6D74RBlXQMbXyXAPdoYEujKR3rWWxgLGwmHy+Bm2td/UgWeKZtqRnV/GI5i4BD0fpBA"
+    "T7YxnjWbgBuEQFzdXwWDb4IPaKPXENdZt5kEnHqCHDJJdfm08nMqJnUmYHpEa7xG4DgL7tWMWWMz"
+    "qvmySoA2WU1Fr6ngSsCloVLVwDE22oUw6oa6hoBl/wtw6AeX4E1BXnUdq6Iu3Ug2tPVbElwJFMA1"
+    "6KvLj9RkCRGnTnt92RasTKAITsEZqKi8IT2zsNa8popsaFu0MoEtsAs2+Vuvw6054dHaKdtN2W5Z"
+    "loAtttgyT3kHhKXDa84jU2sAAAAASUVORK5CYII="
+)
+
 
 def truncate_text(text, max_chars=COL_WIDTH):
     text = str(text)
@@ -613,6 +626,7 @@ class App(tk.Tk):
         self._sort_column = -1
         self._sort_order = 0
 
+        self.iconphoto(True, tk.PhotoImage(data=FLOWER_ICON))
         self._update_title()
         self._build_menu()
         self._build_ui()

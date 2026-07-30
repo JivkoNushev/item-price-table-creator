@@ -59,6 +59,7 @@ jobs:
       - name: Build executable
         run: |
           pyinstaller --onefile --windowed --name TableGenerator `
+            --icon icon.ico `
             --hidden-import openpyxl.cell._writer `
             --collect-submodules openpyxl `
             main.py
