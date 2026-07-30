@@ -8,6 +8,7 @@ import platform
 import shutil
 import subprocess
 import urllib.request
+import urllib.error
 import webbrowser
 
 try:
@@ -1073,6 +1074,12 @@ class App(tk.Tk):
             req = urllib.request.Request(GITHUB_API, headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "TableGenerator"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                show_msg(self, "Update Check", "No releases found on GitHub yet.\nPush to master to trigger a release build.", "info")
+            else:
+                show_msg(self, "Update Check", f"Update server returned an error ({e.code}).", "warning")
+            return
         except Exception:
             show_msg(self, "Update Check", "Could not check for updates.\nCheck your internet connection and try again.", "warning")
             return
