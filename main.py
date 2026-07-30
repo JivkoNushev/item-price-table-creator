@@ -25,7 +25,7 @@ else:
 
 COL_WIDTH = 20
 BTN_WIDTH_DEL = 4
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 REPO_OWNER = "JivkoNushev"
 REPO_NAME = "item-price-table-creator"
 GITHUB_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
