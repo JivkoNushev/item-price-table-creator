@@ -134,7 +134,7 @@ class StartupDialog(tk.Toplevel):
 
 
 class AutocompleteEntry(tk.Frame):
-    def __init__(self, parent, suggestions=None, **kwargs):
+    def __init__(self, parent, suggestions=None, on_search_change=None, **kwargs):
         entry_kwargs = {k: v for k, v in kwargs.items() if k in ("font", "width")}
         frame_kwargs = {k: v for k, v in kwargs.items() if k not in ("font", "width")}
         super().__init__(parent, **frame_kwargs)
@@ -142,6 +142,7 @@ class AutocompleteEntry(tk.Frame):
         self._filtered = []
         self._visible = False
         self._hide_after_id = None
+        self.on_search_change = on_search_change
 
         self.entry = tk.Entry(self, **entry_kwargs)
         self.entry.pack(fill=tk.X, expand=True)
@@ -163,15 +164,18 @@ class AutocompleteEntry(tk.Frame):
     def set_suggestions(self, suggestions):
         self._suggestions = list(suggestions)
 
-    def _on_key_release(self, event):
-        if event.keysym in ("Up", "Down", "Return", "Escape", "Tab"):
-            return
+    def _update_search(self):
         text = self.entry.get().strip()
         if not text:
+            self._filtered = []
+            if self.on_search_change:
+                self.on_search_change("", [])
             self._hide_listbox()
             return
         lower_text = text.lower()
         self._filtered = [s for s in self._suggestions if lower_text in s.lower()]
+        if self.on_search_change:
+            self.on_search_change(text, self._filtered)
         if not self._filtered:
             self._hide_listbox()
             return
@@ -179,6 +183,11 @@ class AutocompleteEntry(tk.Frame):
         for item in self._filtered:
             self.listbox.insert(tk.END, item)
         self._show_listbox()
+
+    def _on_key_release(self, event):
+        if event.keysym in ("Up", "Down", "Return", "Escape", "Tab"):
+            return
+        self._update_search()
 
     def _on_arrow_down(self, event):
         if self._visible and self.listbox.size() > 0:
@@ -206,6 +215,7 @@ class AutocompleteEntry(tk.Frame):
             self.entry.insert(0, self.listbox.get(sel[0]))
             self._hide_listbox()
             self.entry.focus_set()
+            self._update_search()
 
     def _on_focus_out(self, event):
         self._hide_after_id = self.after(200, self._hide_listbox)
@@ -388,9 +398,11 @@ class ColumnBar(tk.Frame):
             self.on_change()
 
 
+HIGHLIGHT_COLOR = "#C8E6C9"
+
 class EntryRow(tk.Frame):
     def __init__(self, parent, columns, values, delete_cb, save_cb,
-                 entries_ref, original_index, **kwargs):
+                 entries_ref, original_index, is_highlighted=False, **kwargs):
         super().__init__(parent, bd=1, relief=tk.RIDGE, **kwargs)
         self.columns = columns
         self.values = list(values)
@@ -398,6 +410,7 @@ class EntryRow(tk.Frame):
         self.save_cb = save_cb
         self.entries_ref = entries_ref
         self.original_index = original_index
+        self._is_highlighted = is_highlighted
         self._cells = []
         self._build()
 
@@ -411,7 +424,10 @@ class EntryRow(tk.Frame):
                   command=lambda: self.delete_cb(self)).pack(
                       side=tk.RIGHT, padx=2, pady=2)
 
-        bg = "white" if self.original_index % 2 == 0 else "#f9f9f9"
+        if self._is_highlighted:
+            bg = HIGHLIGHT_COLOR
+        else:
+            bg = "white" if self.original_index % 2 == 0 else "#f9f9f9"
 
         for i, val in enumerate(self.values):
             cell = tk.Frame(self, bg=bg)
@@ -456,11 +472,13 @@ class EntryRow(tk.Frame):
         self.values[col_idx] = new_value
         self.entries_ref[self.original_index] = list(self.values)
         self.save_cb()
-        bg = "white" if self.original_index % 2 == 0 else "#f9f9f9"
+        bg = HIGHLIGHT_COLOR if self._is_highlighted else (
+            "white" if self.original_index % 2 == 0 else "#f9f9f9")
         self._show_label(self._cells[col_idx], col_idx, new_value, bg)
 
     def _cancel_cell(self, col_idx):
-        bg = "white" if self.original_index % 2 == 0 else "#f9f9f9"
+        bg = HIGHLIGHT_COLOR if self._is_highlighted else (
+            "white" if self.original_index % 2 == 0 else "#f9f9f9")
         self._show_label(self._cells[col_idx], col_idx, self.values[col_idx], bg)
 
     def get_data(self):
@@ -577,6 +595,8 @@ class App(tk.Tk):
         self.columns = []
         self.entries = []
         self.form_entries = []
+        self._search_text = ""
+        self._search_matches = set()
 
         self._update_title()
         self._build_ui()
@@ -719,7 +739,8 @@ class App(tk.Tk):
 
             if i == 0:
                 entry = AutocompleteEntry(frame, font=("Segoe UI", 10),
-                                          width=COL_WIDTH)
+                                          width=COL_WIDTH,
+                                          on_search_change=self._on_search_change)
                 entry.pack(fill=tk.X)
                 entry.entry.bind("<Return>",
                                  lambda e: self._focus_next_entry(0))
@@ -924,6 +945,11 @@ class App(tk.Tk):
             save_entries_to_xlsx(self.columns, self.entries,
                                  self.current_file, self)
 
+    def _on_search_change(self, text, matches):
+        self._search_text = text
+        self._search_matches = set(matches) if text else set()
+        self._render_entries()
+
     def _render_entries(self):
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
@@ -937,12 +963,16 @@ class App(tk.Tk):
             return
 
         for i, entry_values in enumerate(self.entries):
+            is_highlighted = bool(self._search_text) and entry_values[0] in self._search_matches
+            row_bg = HIGHLIGHT_COLOR if is_highlighted else (
+                "white" if i % 2 == 0 else "#f9f9f9")
             row = EntryRow(self.scrollable_frame, self.columns, entry_values,
                            delete_cb=self._delete_entry,
                            save_cb=self._auto_save,
                            entries_ref=self.entries,
                            original_index=i,
-                           bg="white" if i % 2 == 0 else "#f9f9f9")
+                           is_highlighted=is_highlighted,
+                           bg=row_bg)
             row.pack(fill=tk.X)
         self.after(10, self._clamp_scroll)
 
