@@ -402,7 +402,8 @@ HIGHLIGHT_COLOR = "#C8E6C9"
 
 class EntryRow(tk.Frame):
     def __init__(self, parent, columns, values, delete_cb, save_cb,
-                 entries_ref, original_index, is_highlighted=False, **kwargs):
+                 entries_ref, original_index, is_highlighted=False,
+                 base_bg=None, **kwargs):
         super().__init__(parent, bd=1, relief=tk.RIDGE, **kwargs)
         self.columns = columns
         self.values = list(values)
@@ -411,6 +412,7 @@ class EntryRow(tk.Frame):
         self.entries_ref = entries_ref
         self.original_index = original_index
         self._is_highlighted = is_highlighted
+        self._base_bg = base_bg or "white"
         self._cells = []
         self._build()
 
@@ -424,10 +426,7 @@ class EntryRow(tk.Frame):
                   command=lambda: self.delete_cb(self)).pack(
                       side=tk.RIGHT, padx=2, pady=2)
 
-        if self._is_highlighted:
-            bg = HIGHLIGHT_COLOR
-        else:
-            bg = "white" if self.original_index % 2 == 0 else "#f9f9f9"
+        bg = HIGHLIGHT_COLOR if self._is_highlighted else self._base_bg
 
         for i, val in enumerate(self.values):
             cell = tk.Frame(self, bg=bg)
@@ -472,13 +471,15 @@ class EntryRow(tk.Frame):
         self.values[col_idx] = new_value
         self.entries_ref[self.original_index] = list(self.values)
         self.save_cb()
-        bg = HIGHLIGHT_COLOR if self._is_highlighted else (
-            "white" if self.original_index % 2 == 0 else "#f9f9f9")
+        app = self.winfo_toplevel()
+        if getattr(app, '_sort_column', -1) >= 0:
+            app._render_entries()
+            return
+        bg = HIGHLIGHT_COLOR if self._is_highlighted else self._base_bg
         self._show_label(self._cells[col_idx], col_idx, new_value, bg)
 
     def _cancel_cell(self, col_idx):
-        bg = HIGHLIGHT_COLOR if self._is_highlighted else (
-            "white" if self.original_index % 2 == 0 else "#f9f9f9")
+        bg = HIGHLIGHT_COLOR if self._is_highlighted else self._base_bg
         self._show_label(self._cells[col_idx], col_idx, self.values[col_idx], bg)
 
     def get_data(self):
@@ -597,6 +598,8 @@ class App(tk.Tk):
         self.form_entries = []
         self._search_text = ""
         self._search_matches = set()
+        self._sort_column = -1
+        self._sort_order = 0
 
         self._update_title()
         self._build_ui()
@@ -781,15 +784,31 @@ class App(tk.Tk):
         tk.Label(self.header_scrollable, text="", bg="#D9E1F2",
                  width=BTN_WIDTH_DEL + 2).pack(side=tk.RIGHT)
 
-        for col in self.columns:
-            lbl_text = truncate_text(col["name"], COL_WIDTH)
+        for i, col in enumerate(self.columns):
+            frame = tk.Frame(self.header_scrollable, bg="#D9E1F2")
+            frame.pack(side=tk.LEFT)
+
+            lbl_text = truncate_text(col["name"], COL_WIDTH - 2)
             if col["optional"]:
                 lbl_text += " *"
-            tk.Label(self.header_scrollable, text=lbl_text, bg="#D9E1F2",
-                     font=("Segoe UI", 10, "bold"), anchor="w", padx=5,
-                     pady=4, width=COL_WIDTH).pack(side=tk.LEFT)
+
+            if self._sort_column == i:
+                indicator = "\u2191" if self._sort_order == 1 else "\u2193"
+            else:
+                indicator = "\u2195"
+
+            sort_lbl = tk.Label(frame, text=indicator, bg="#D9E1F2",
+                                font=("Segoe UI", 8), cursor="hand2", padx=1)
+            sort_lbl.pack(side=tk.RIGHT)
+            sort_lbl.bind("<Button-1>", lambda e, idx=i: self._toggle_sort(idx))
+
+            tk.Label(frame, text=lbl_text, bg="#D9E1F2",
+                     font=("Segoe UI", 10, "bold"), anchor="w", padx=3,
+                     pady=4, width=COL_WIDTH - 2).pack(side=tk.LEFT)
 
     def _on_columns_change(self):
+        self._sort_column = -1
+        self._sort_order = 0
         self.column_bar._build()
         self._rebuild_entry_form()
         self._rebuild_list_header()
@@ -859,6 +878,9 @@ class App(tk.Tk):
         if startup.result is None:
             self.destroy()
             return
+
+        self._sort_column = -1
+        self._sort_order = 0
 
         if startup.result:
             self.current_file = startup.result
@@ -950,6 +972,25 @@ class App(tk.Tk):
         self._search_matches = set(matches) if text else set()
         self._render_entries()
 
+    def _toggle_sort(self, col_idx):
+        if self._sort_column != col_idx:
+            self._sort_column = col_idx
+            self._sort_order = 1
+        else:
+            self._sort_order = 2 if self._sort_order == 1 else 0
+            if self._sort_order == 0:
+                self._sort_column = -1
+        self._rebuild_list_header()
+        self._render_entries()
+
+    def _get_sorted_entries(self):
+        indexed = list(enumerate(self.entries))
+        if self._sort_column >= 0 and self._sort_order != 0:
+            reverse = self._sort_order == 2
+            indexed.sort(key=lambda x: str(x[1][self._sort_column]).lower()
+                         if self._sort_column < len(x[1]) else "", reverse=reverse)
+        return indexed
+
     def _render_entries(self):
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
@@ -962,16 +1003,17 @@ class App(tk.Tk):
             self.after(10, self._clamp_scroll)
             return
 
-        for i, entry_values in enumerate(self.entries):
+        for display_idx, (orig_idx, entry_values) in enumerate(self._get_sorted_entries()):
             is_highlighted = bool(self._search_text) and entry_values[0] in self._search_matches
-            row_bg = HIGHLIGHT_COLOR if is_highlighted else (
-                "white" if i % 2 == 0 else "#f9f9f9")
+            base_bg = "white" if display_idx % 2 == 0 else "#f9f9f9"
+            row_bg = HIGHLIGHT_COLOR if is_highlighted else base_bg
             row = EntryRow(self.scrollable_frame, self.columns, entry_values,
                            delete_cb=self._delete_entry,
                            save_cb=self._auto_save,
                            entries_ref=self.entries,
-                           original_index=i,
+                           original_index=orig_idx,
                            is_highlighted=is_highlighted,
+                           base_bg=base_bg,
                            bg=row_bg)
             row.pack(fill=tk.X)
         self.after(10, self._clamp_scroll)
@@ -1004,6 +1046,8 @@ class App(tk.Tk):
         self.columns.extend(cols)
         self.entries.clear()
         self.entries.extend(entries)
+        self._sort_column = -1
+        self._sort_order = 0
         self._update_title()
         self.column_bar._build()
         self._rebuild_entry_form()
