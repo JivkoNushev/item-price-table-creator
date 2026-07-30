@@ -3,6 +3,12 @@ import tkinter as tk
 from tkinter import ttk, filedialog
 import os
 import sys
+import json
+import platform
+import shutil
+import subprocess
+import urllib.request
+import webbrowser
 
 try:
     from openpyxl import Workbook, load_workbook
@@ -18,6 +24,11 @@ else:
 
 COL_WIDTH = 20
 BTN_WIDTH_DEL = 4
+APP_VERSION = "1.0.0"
+REPO_OWNER = "JivkoNushev"
+REPO_NAME = "item-price-table-creator"
+GITHUB_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
+RELEASES_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/latest"
 
 
 def truncate_text(text, max_chars=COL_WIDTH):
@@ -602,8 +613,28 @@ class App(tk.Tk):
         self._sort_order = 0
 
         self._update_title()
+        self._build_menu()
         self._build_ui()
         self.after(100, self._show_startup)
+
+    def _build_menu(self):
+        menubar = tk.Menu(self)
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Open", command=self._open_file, accelerator="Ctrl+O")
+        file_menu.add_command(label="Save As", command=self._save_as_file, accelerator="Ctrl+S")
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.destroy, accelerator="Ctrl+Q")
+        menubar.add_cascade(label="File", menu=file_menu)
+
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="Check for Updates...", command=self._check_for_updates)
+        menubar.add_cascade(label="Help", menu=help_menu)
+
+        self.config(menu=menubar)
+
+        self.bind_all("<Control-o>", lambda e: self._open_file())
+        self.bind_all("<Control-s>", lambda e: self._save_as_file())
+        self.bind_all("<Control-q>", lambda e: self.destroy())
 
     def _build_ui(self):
         style = ttk.Style()
@@ -1028,10 +1059,190 @@ class App(tk.Tk):
                                  self.current_file, self)
 
     def _update_title(self):
+        base = f"Table Generator v{APP_VERSION}"
         if self.current_file:
-            self.title(f"Table Generator \u2014 {os.path.basename(self.current_file)}")
+            self.title(f"{base} \u2014 {os.path.basename(self.current_file)}")
         else:
-            self.title("Table Generator \u2014 New")
+            self.title(f"{base} \u2014 New")
+
+    def _parse_version(self, v_str):
+        return tuple(int(x) for x in v_str.lstrip("vV").split("."))
+
+    def _check_for_updates(self):
+        try:
+            req = urllib.request.Request(GITHUB_API, headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "TableGenerator"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+        except Exception:
+            show_msg(self, "Update Check", "Could not check for updates.\nCheck your internet connection and try again.", "warning")
+            return
+
+        latest_tag = data.get("tag_name", "")
+        if not latest_tag:
+            show_msg(self, "Update Check", "No release information found.", "info")
+            return
+
+        current = self._parse_version(APP_VERSION)
+        latest = self._parse_version(latest_tag)
+
+        if latest <= current:
+            show_msg(self, "Update Check", f"You're up to date (v{APP_VERSION}).", "info")
+            return
+
+        body = data.get("body", "")
+        self._show_update_dialog(latest_tag, body)
+
+    def _show_update_dialog(self, latest_tag, body):
+        win = tk.Toplevel(self)
+        win.title("Update Available")
+        win.resizable(False, False)
+        win.after_idle(win.grab_set)
+
+        outer = tk.Frame(win, bg="#4CAF50", padx=2, pady=2)
+        outer.pack(fill=tk.BOTH, expand=True)
+        inner = tk.Frame(outer, bg="white", padx=20, pady=15)
+        inner.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(inner, text="Update Available", font=("Segoe UI", 12, "bold"),
+                 bg="white", fg="#4CAF50").pack(anchor="w", pady=(0, 10))
+
+        lines = [
+            f"Current version:  v{APP_VERSION}",
+            f"New version:      {latest_tag}",
+        ]
+        for line in lines:
+            tk.Label(inner, text=line, bg="white", font=("Segoe UI", 10),
+                     anchor="w", justify="left").pack(anchor="w")
+
+        if body:
+            tk.Frame(inner, bg="#e0e0e0", height=1).pack(fill=tk.X, pady=8)
+            tk.Label(inner, text="What's new:", bg="white",
+                     font=("Segoe UI", 10, "bold"), anchor="w").pack(anchor="w")
+            tk.Label(inner, text=body[:500], bg="white", font=("Segoe UI", 9),
+                     wraplength=380, justify="left", anchor="w").pack(anchor="w", pady=(2, 10))
+
+        btn_frame = tk.Frame(inner, bg="white")
+        btn_frame.pack(fill=tk.X, pady=(8, 0))
+
+        tk.Button(btn_frame, text="Download & Install", font=("Segoe UI", 10, "bold"),
+                  bg="#4CAF50", fg="white", padx=12,
+                  command=lambda: self._download_and_install(win)).pack(side=tk.RIGHT, padx=(8, 0))
+        tk.Button(btn_frame, text="Cancel", font=("Segoe UI", 10),
+                  command=win.destroy).pack(side=tk.RIGHT)
+        win.bind("<Escape>", lambda e: win.destroy())
+
+        win.after(10, lambda: self._center_window(win))
+
+    def _center_window(self, win):
+        pw, ph = self.winfo_width(), self.winfo_height()
+        px, py = self.winfo_x(), self.winfo_y()
+        w, h = win.winfo_width(), win.winfo_height()
+        win.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+
+    def _download_and_install(self, dialog):
+        dialog.destroy()
+        system = platform.system()
+
+        if system == "Windows":
+            asset_name = "TableGenerator.exe"
+        else:
+            asset_name = "main.py"
+
+        try:
+            req = urllib.request.Request(GITHUB_API, headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "TableGenerator"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+        except Exception:
+            show_msg(self, "Error", "Failed to fetch update info.", "error")
+            return
+
+        asset_url = None
+        for asset in data.get("assets", []):
+            if asset["name"] == asset_name:
+                asset_url = asset["browser_download_url"]
+                break
+
+        if not asset_url:
+            show_msg(self, "Error", f"No {asset_name} found in the latest release.", "error")
+            return
+
+        progress = tk.Toplevel(self)
+        progress.title("Downloading")
+        progress.resizable(False, False)
+        progress.after_idle(progress.grab_set)
+        tk.Label(progress, text="Downloading update...", font=("Segoe UI", 10),
+                 padx=30, pady=20).pack()
+        progress.update()
+
+        temp_dir = os.path.join(os.path.expanduser("~"), ".table_generator_update")
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_path = os.path.join(temp_dir, asset_name)
+
+        try:
+            urllib.request.urlretrieve(asset_url, temp_path)
+        except Exception:
+            progress.destroy()
+            show_msg(self, "Error", "Download failed. Please try again.", "error")
+            return
+
+        progress.destroy()
+
+        restart = tk.Toplevel(self)
+        restart.title("Update Ready")
+        restart.resizable(False, False)
+        restart.after_idle(restart.grab_set)
+
+        outer = tk.Frame(restart, bg="#1565C0", padx=2, pady=2)
+        outer.pack(fill=tk.BOTH, expand=True)
+        inner = tk.Frame(outer, bg="white", padx=20, pady=15)
+        inner.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(inner, text="Update downloaded successfully.", font=("Segoe UI", 10),
+                 bg="white").pack(pady=(0, 12))
+
+        btn_frame = tk.Frame(inner, bg="white")
+        btn_frame.pack()
+        tk.Button(btn_frame, text="Restart Now", font=("Segoe UI", 10, "bold"),
+                  bg="#1565C0", fg="white", padx=12,
+                  command=lambda: self._install_update(temp_path, restart)).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(btn_frame, text="Later", font=("Segoe UI", 10),
+                  command=restart.destroy).pack(side=tk.LEFT)
+
+        restart.bind("<Escape>", lambda e: restart.destroy())
+
+    def _get_app_path(self):
+        if getattr(sys, "frozen", False):
+            return sys.executable
+        return os.path.abspath(sys.argv[0])
+
+    def _install_update(self, temp_path, dialog):
+        dialog.destroy()
+        app_path = self._get_app_path()
+        system = platform.system()
+
+        if system == "Windows":
+            update_bat = os.path.join(os.path.dirname(temp_path), "update.bat")
+            with open(update_bat, "w") as f:
+                f.write(f'@echo off\n')
+                f.write(f'timeout /t 2 /nobreak >nul\n')
+                f.write(f'copy /y "{temp_path}" "{app_path}" >nul 2>&1\n')
+                f.write(f'if errorlevel 1 (\n')
+                f.write(f'  echo Update failed. Run manually: copy "{temp_path}" "{app_path}"\n')
+                f.write(f'  pause\n')
+                f.write(f'  exit /b 1\n')
+                f.write(f')\n')
+                f.write(f'start "" "{app_path}"\n')
+                f.write(f'del "%~f0"\n')
+            subprocess.Popen(["cmd.exe", "/c", "start", "/min", update_bat],
+                             shell=True, close_fds=True)
+            self.destroy()
+        else:
+            try:
+                shutil.move(temp_path, app_path)
+            except Exception:
+                show_msg(self, "Error", "Could not write the update.\nMake sure you have write permissions.", "error")
+                return
+            os.execv(sys.executable, [sys.executable, app_path])
 
     def _open_file(self):
         path = filedialog.askopenfilename(
